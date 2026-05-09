@@ -1,0 +1,133 @@
+#include <Servo.h>
+#include "RTClib.h"
+Servo horizontal;
+Servo vertical;
+
+// starting positions
+int servoh = 90;
+int servov = 90;
+
+bool lastButtonState = HIGH;
+bool buttonState = HIGH;
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 50; // ms
+
+// RTC mode
+RTC_DS3231 rtc;
+float peakTime = 13.0; // ~1 PM (solar noon in FL)
+
+// LDR pins
+int ldrlt = A1; // top left
+int ldrrt = A0; // top right
+int ldrld = A3; // bottom left
+int ldrrd = A2; // bottom right
+
+int buttonPin = 7; //button
+bool autoMode = true;
+
+int tol = 150;   // tolerance
+int dtime = 20; // delay time
+
+void setup() {
+  pinMode(buttonPin, INPUT_PULLUP);
+  rtc.begin();
+  Serial.begin(9600);
+  horizontal.attach(2);
+  vertical.attach(9);
+  horizontal.write(servoh);
+  vertical.write(servov);
+  delay(500);
+}
+
+void loop() {
+  int reading = digitalRead(buttonPin);
+
+  if (reading != lastButtonState) {
+      lastDebounceTime = millis();}
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (reading != buttonState) {
+      buttonState = reading;
+      if (buttonState == LOW) {
+        autoMode = !autoMode; }
+        }
+      }
+
+    lastButtonState = reading;
+  if (autoMode)
+  {
+  servov = constrain(servov, 0, 180);
+  servoh = constrain(servoh, 0, 180);
+  int lt = analogRead(ldrlt);
+  int rt = analogRead(ldrrt);
+  int ld = analogRead(ldrld);
+  int rd = analogRead(ldrrd);
+
+  int avt = (lt + rt) / 2; // average top
+  int avd = (ld + rd) / 2; // average bottom
+  int avl = (lt + ld) / 2; // average left
+  int avr = (rt + rd) / 2; // average right
+
+  int dvert = avt - avd;
+  int dhoriz = avl - avr;
+  
+  // debug; they show the vals of each photoresistor. Good for if one is faulty.
+  /*Serial.print("LT: ");
+  Serial.print(lt);
+  Serial.print(" RT: ");
+  Serial.print(rt);
+  Serial.print(" LD: ");
+  Serial.print(ld);
+  Serial.print(" RD: ");
+  Serial.print(rd);
+  Serial.print(" | dV: ");
+  Serial.print(dvert);
+  Serial.print(" dH: ");
+  Serial.println(dhoriz);
+  if (abs(dhoriz) > tol) {
+  Serial.print("MOVING HORIZ, dH = ");
+  Serial.println(dhoriz);} */
+
+  // vertical movement
+  if (abs(dvert) > tol) {
+    if (avt < avd) {
+      servov++;
+    } else {
+      servov--;
+    }
+    vertical.write(servov);
+  }
+
+  // horizontal movement
+  if (abs(dhoriz) > tol) {
+    if (avl > avr) {
+      servoh++;
+    } else {
+      servoh--;
+    }
+    horizontal.write(servoh);
+  }
+
+  delay(dtime); }
+  else {
+      DateTime now = rtc.now();
+      int hour = now.hour();
+      int minute = now.minute();
+      float time = hour + (minute / 60.0); //Decimal hours. 6:30 = 6.5 for example
+      
+      if (time < 6 || time > 18) {
+        vertical.write(110); // sets it to the time it would go to at 6am
+        horizontal.write(0);
+        return;
+      }
+      float progress = (time - 6.0) / 12.0;
+      float hAngle = progress * 180.0;
+      horizontal.write(hAngle);
+
+      /* The max angle - decimal time - peak time. 
+      Absolute val so that it doesn't try to go over. 
+      mult by 10 turns it into an angle. */
+      float vAngle = 180 - abs(time - peakTime) * 10;
+      vertical.write(vAngle);   
+      } 
+}
